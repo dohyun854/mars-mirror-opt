@@ -1,0 +1,121 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+
+# ====== 1. 변수 설정 ======
+# 우주 거울의 궤도 케플러 요소 (화성 중심)
+semi_major_axis = 1.2e7      # 반장축 (m)
+eccentricity = 0.04          # 이심률
+inclination = np.deg2rad(20) # 경사각 (rad)
+raan = np.deg2rad(10)        # 승교점 경도 (rad)
+arg_periapsis = np.deg2rad(30) # 근일점 인수 (rad)
+# 각 프레임별 진이각(0~2pi)로 샘플링
+frames = 360
+true_anomaly_arr = np.linspace(0, 2*np.pi, frames)
+
+# 우주 거울 변수
+mirror_size = 800            # 거울 한 변의 길이 (m)
+mirror_angle = 25            # 거울 각도 (deg)
+mirror_reflectivity = 0.85   # 반사율
+
+# 화성 궤도 (태양 중심, 실제 데이터 기반)
+AU = 149597870.0             # 1 AU (km)
+a_mars = 1.523 * AU          # 화성의 반장축 (km)
+e_mars = 0.0934
+theta = np.linspace(0, 2 * np.pi, frames)
+mars_r = a_mars * (1 - e_mars**2) / (1 + e_mars * np.cos(theta))
+mars_x = mars_r * np.cos(theta)
+mars_y = mars_r * np.sin(theta)
+mars_z = np.zeros_like(mars_x)
+
+# 태양 상수 (1AU에서, W/m^2)
+solar_constant_1AU = 1361
+
+# ====== 2. 우주 거울 궤도 계산 (케플러 요소 기반) ======
+def kepler_to_cartesian(a, e, i, raan, argp, ta):
+    r = a * (1 - e**2) / (1 + e * np.cos(ta))
+    x_p = r * np.cos(ta)
+    y_p = r * np.sin(ta)
+    z_p = 0
+    cos_raan = np.cos(raan)
+    sin_raan = np.sin(raan)
+    cos_i = np.cos(i)
+    sin_i = np.sin(i)
+    cos_argp = np.cos(argp)
+    sin_argp = np.sin(argp)
+    R = np.array([
+        [cos_raan*cos_argp - sin_raan*sin_argp*cos_i, -cos_raan*sin_argp - sin_raan*cos_argp*cos_i, sin_raan*sin_i],
+        [sin_raan*cos_argp + cos_raan*sin_argp*cos_i, -sin_raan*sin_argp + cos_raan*cos_argp*cos_i, -cos_raan*sin_i],
+        [sin_argp*sin_i, cos_argp*sin_i, cos_i]
+    ])
+    return R @ np.array([x_p, y_p, z_p])
+
+mirror_orbit = np.array([
+    kepler_to_cartesian(semi_major_axis, eccentricity, inclination, raan, arg_periapsis, ta)
+    for ta in true_anomaly_arr
+])
+
+# ====== 3. 에너지 계산 ======
+energy_to_mars = []
+for k in range(frames):
+    mars_pos = np.array([mars_x[k], mars_y[k], mars_z[k]])
+    mirror_pos = mars_pos + mirror_orbit[k]
+    sun_to_mirror = np.linalg.norm(mirror_pos)
+    S_mirror = solar_constant_1AU * (1.496e8 / (sun_to_mirror/1e3))**2  # km 변환
+    mirror_to_mars = np.linalg.norm(mirror_orbit[k])
+    sun_vec = -mirror_pos
+    mars_vec = -mirror_orbit[k]
+    sun_vec_unit = sun_vec / np.linalg.norm(sun_vec)
+    mars_vec_unit = mars_vec / np.linalg.norm(mars_vec)
+    cos_theta = np.dot(sun_vec_unit, mars_vec_unit)
+    cos_theta = max(cos_theta, 0)
+    mirror_area = mirror_size ** 2
+    reflected = mirror_area * mirror_reflectivity * S_mirror * cos_theta
+    reflected_on_mars = reflected * (1 / (mirror_to_mars)**2) if mirror_to_mars > 0 else 0
+    energy_to_mars.append(reflected_on_mars)
+
+print(f"한 궤도 동안 화성에 도달한 반사 태양 에너지(상대량): {np.sum(energy_to_mars):.2e}")
+
+# ====== 4. 3D 플롯 및 애니메이션 ======
+fig = plt.figure(figsize=(10, 10))
+ax = fig.add_subplot(111, projection='3d')
+ax.set_xlim(-a_mars * 1.2, a_mars * 1.2)
+ax.set_ylim(-a_mars * 1.2, a_mars * 1.2)
+ax.set_zlim(-a_mars * 0.1, a_mars * 0.1)
+ax.set_box_aspect([1, 1, 0.1])
+ax.scatter(0, 0, 0, s=1000, c='yellow', label='태양')
+ax.plot(mars_x, mars_y, mars_z, 'r--', alpha=0.5, label="화성 궤도")
+ax.plot(mars_x+mirror_orbit[:,0], mars_y+mirror_orbit[:,1], mars_z+mirror_orbit[:,2], 'b-', alpha=0.5, label="우주 거울 궤도")
+mars_point = ax.scatter(mars_x[0], mars_y[0], mars_z[0], s=200, c='red', label="화성")
+mirror_point = ax.scatter(mars_x[0]+mirror_orbit[0,0], mars_y[0]+mirror_orbit[0,1], mars_z[0]+mirror_orbit[0,2], s=100, c='blue', label="우주 거울")
+arrow_length = 0.1 * a_mars
+mirror_arrow = ax.quiver(mars_x[0]+mirror_orbit[0,0], mars_y[0]+mirror_orbit[0,1], mars_z[0]+mirror_orbit[0,2],
+                         -(mars_x[0]+mirror_orbit[0,0]), -(mars_y[0]+mirror_orbit[0,1]), -(mars_z[0]+mirror_orbit[0,2]),
+                         length=arrow_length, color='blue', normalize=True)
+ax.legend()
+
+def update(frame):
+    M = np.array([mars_x[frame], mars_y[frame], mars_z[frame]])
+    mirror_pos = M + mirror_orbit[frame]
+    mars_point._offsets3d = ([M[0]], [M[1]], [M[2]])
+    mirror_point._offsets3d = ([mirror_pos[0]], [mirror_pos[1]], [mirror_pos[2]])
+    norm_val = np.linalg.norm(mirror_pos)
+    arrow_dir = -mirror_pos / norm_val if norm_val > 1e-9 else np.array([0,0,1])
+    global mirror_arrow
+    mirror_arrow.remove()
+    mirror_arrow = ax.quiver(mirror_pos[0], mirror_pos[1], mirror_pos[2],
+                             arrow_dir[0], arrow_dir[1], arrow_dir[2],
+                             length=arrow_length, color='blue', normalize=True)
+    return mars_point, mirror_point, mirror_arrow
+
+ani = FuncAnimation(fig, update, frames=frames, interval=50, blit=False)
+plt.title("우주 거울: 케플러 요소와 크기/각도 변수 기반 3D 궤도")
+plt.show()
+
+plt.figure(figsize=(8,4))
+plt.plot(np.arange(frames), np.cumsum(energy_to_mars))
+plt.xlabel('Step')
+plt.ylabel('Cumulative Reflected Energy to Mars (relative)')
+plt.title('Reflected Solar Energy Delivered to Mars Over Orbit')
+plt.grid()
+plt.show()
