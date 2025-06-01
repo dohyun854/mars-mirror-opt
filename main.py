@@ -1,155 +1,238 @@
-# 필요한 라이브러리 import
-import numpy as np
+import math
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
+import matplotlib.gridspec as gridspec
 
-# ====== 1. 변수 설정 ======
-# 우주 거울의 궤도 케플러 요소 (화성 중심)
-semi_major_axis = 10000      # 반장축 (km) - 화성 중심 기준 예시값
-eccentricity = 0.01          # 이심률
-inclination = np.deg2rad(25) # 경사각 (rad)
-raan = np.deg2rad(0)         # 승교점 경도 (rad)
-arg_periapsis = np.deg2rad(0)# 근일점 인수 (rad)
-true_anomaly = np.deg2rad(0) # 진이각 (rad)
+# --------- Vector Class ---------
+class Vector:
+    def __init__(self, x=0, y=0, z=0):
+        self.x, self.y, self.z = x, y, z
+    def __add__(self, v): return Vector(self.x + v.x, self.y + v.y, self.z + v.z)
+    def __sub__(self, v): return Vector(self.x - v.x, self.y - v.y, self.z - v.z)
+    def __mul__(self, scalar): return Vector(self.x * scalar, self.y * scalar, self.z * scalar)
+    def __truediv__(self, scalar): return Vector(self.x / scalar, self.y / scalar, self.z / scalar)
+    def get_norm(self): return math.sqrt(self.x**2 + self.y**2 + self.z**2)
+    def normalize(self):
+        norm = self.get_norm()
+        return self / norm if norm != 0 else Vector(0, 0, 0)
+    def dot(self, v): return self.x * v.x + self.y * v.y + self.z * v.z
+    def copy(self): return Vector(self.x, self.y, self.z)
+    def as_tuple(self): return (self.x, self.y, self.z)
 
-# 오일러 방법 변수
-dt = 60.0                    # 시간 간격 (초)
-total_time = 86400           # 전체 시뮬레이션 시간 (초)
-num_steps = int(total_time / dt)
+# --------- Kepler Orbit ---------
+class KeplerOrbit:
+    def __init__(self, G, M, a, e, i, Omega, omega, M0=0):
+        self.G = G
+        self.M = M
+        self.a = a
+        self.e = e
+        self.i = i
+        self.Omega = Omega
+        self.omega = omega
+        self.M0 = M0
+        self.n = math.sqrt(G * M / a**3)
 
-# 우주 거울 변수
-mirror_size = 1000           # 거울 한 변의 길이 (m)
-mirror_angle = 45            # 거울 각도 (deg, 실제 시뮬레이션에서는 입사각에 따라 동적으로 계산)
-mirror_reflectivity = 1.0    # 반사율
+    def solve_kepler(self, M):
+        E = M
+        for _ in range(10):
+            f = E - self.e * math.sin(E) - M
+            f_prime = 1 - self.e * math.cos(E)
+            E = E - f / f_prime
+        return E
 
-# 화성 중심 표준중력상수 (km^3/s^2)
-mu_mars = 4.282837e4
+    def get_state(self, t):
+        M = (self.M0 + self.n * t) % (2 * math.pi)
+        E = self.solve_kepler(M)
 
-# 화성 반지름 및 태양-화성 거리
-mars_radius = 3389.5         # km
-mars_sun_distance = 227.9e6  # km (평균)
+        x_orb = self.a * (math.cos(E) - self.e)
+        y_orb = self.a * math.sqrt(1 - self.e**2) * math.sin(E)
 
-# 태양 상수 (1AU에서, W/m^2)
-solar_constant_1AU = 1361
+        mu = self.G * self.M
+        r = math.sqrt(x_orb**2 + y_orb**2)
+        v_x_orb = - math.sqrt(mu / self.a) / r * math.sin(E)
+        v_y_orb = math.sqrt(mu / self.a) / r * math.sqrt(1 - self.e**2) * math.cos(E)
 
-# ====== 2. 케플러 요소 → 초기 위치/속도 변환 함수 ======
-def kepler_to_cartesian(a, e, i, raan, argp, ta, mu):
-    # 케플러 요소를 이용해 위치/속도 벡터 계산
-    r = a * (1 - e**2) / (1 + e * np.cos(ta))
-    x_p = r * np.cos(ta)
-    y_p = r * np.sin(ta)
-    z_p = 0
+        cos_Omega = math.cos(self.Omega)
+        sin_Omega = math.sin(self.Omega)
+        cos_i = math.cos(self.i)
+        sin_i = math.sin(self.i)
+        cos_omega = math.cos(self.omega)
+        sin_omega = math.sin(self.omega)
 
-    # 속도 크기
-    h = np.sqrt(mu * a * (1 - e**2))
-    vx_p = -mu/h * np.sin(ta)
-    vy_p = mu/h * (e + np.cos(ta))
-    vz_p = 0
+        x = (cos_Omega * cos_omega - sin_Omega * sin_omega * cos_i) * x_orb + (-cos_Omega * sin_omega - sin_Omega * cos_omega * cos_i) * y_orb
+        y = (sin_Omega * cos_omega + cos_Omega * sin_omega * cos_i) * x_orb + (-sin_Omega * sin_omega + cos_Omega * cos_omega * cos_i) * y_orb
+        z = (sin_omega * sin_i) * x_orb + (cos_omega * sin_i) * y_orb
 
-    # 회전행렬 적용 (공전면 -> 적도좌표계)
-    cos_raan = np.cos(raan)
-    sin_raan = np.sin(raan)
-    cos_i = np.cos(i)
-    sin_i = np.sin(i)
-    cos_argp = np.cos(argp)
-    sin_argp = np.sin(argp)
+        vx = (cos_Omega * cos_omega - sin_Omega * sin_omega * cos_i) * v_x_orb + (-cos_Omega * sin_omega - sin_Omega * cos_omega * cos_i) * v_y_orb
+        vy = (sin_Omega * cos_omega + cos_Omega * sin_omega * cos_i) * v_x_orb + (-sin_Omega * sin_omega + cos_Omega * cos_omega * cos_i) * v_y_orb
+        vz = (sin_omega * sin_i) * v_x_orb + (cos_omega * sin_i) * v_y_orb
 
-    R = np.array([
-        [cos_raan*cos_argp - sin_raan*sin_argp*cos_i, -cos_raan*sin_argp - sin_raan*cos_argp*cos_i, sin_raan*sin_i],
-        [sin_raan*cos_argp + cos_raan*sin_argp*cos_i, -sin_raan*sin_argp + cos_raan*cos_argp*cos_i, -cos_raan*sin_i],
-        [sin_argp*sin_i, cos_argp*sin_i, cos_i]
-    ])
+        pos = Vector(x, y, z)
+        vel = Vector(vx, vy, vz)
+        return pos, vel
 
-    r_vec = R @ np.array([x_p, y_p, z_p])
-    v_vec = R @ np.array([vx_p, vy_p, vz_p])
-    return r_vec, v_vec
+# --------- Euler Rotation for Mirror Orbit ---------
+def euler_rotate(pos, angles):
+    """pos: Vector, angles: (alpha, beta, gamma) in radians"""
+    x, y, z = pos.x, pos.y, pos.z
+    alpha, beta, gamma = angles
 
-# ====== 3. 초기 위치/속도 ======
-# 우주 거울 (화성 중심 궤도)
-r, v = kepler_to_cartesian(semi_major_axis, eccentricity, inclination, raan, arg_periapsis, true_anomaly, mu_mars)
+    # Rotation matrix from ZXZ Euler angles:
+    # R = Rz(gamma) * Rx(beta) * Rz(alpha)
 
-# 화성 (태양 중심 궤도, 단순히 원궤도 가정)
-mars_theta = 0
-mars_angular_speed = 2 * np.pi / (687 * 24 * 3600)  # 화성 공전주기(초) 기준 각속도
+    # Rz(gamma)
+    x1 = x * math.cos(gamma) - y * math.sin(gamma)
+    y1 = x * math.sin(gamma) + y * math.cos(gamma)
+    z1 = z
 
-# ====== 4. 시뮬레이션 ======
-positions = []
-velocities = []
-mars_positions = []
-mirror_angles = []
-energy_to_mars = []
+    # Rx(beta)
+    x2 = x1
+    y2 = y1 * math.cos(beta) - z1 * math.sin(beta)
+    z2 = y1 * math.sin(beta) + z1 * math.cos(beta)
 
-for step in range(num_steps):
-    # 1) 우주 거울 궤도 적분 (화성 중심)
-    r_norm = np.linalg.norm(r)
-    a_grav = -mu_mars * r / r_norm**3
-    v = v + a_grav * dt
-    r = r + v * dt
-    positions.append(r.copy())
-    velocities.append(v.copy())
+    # Rz(alpha)
+    x3 = x2 * math.cos(alpha) - y2 * math.sin(alpha)
+    y3 = x2 * math.sin(alpha) + y2 * math.cos(alpha)
+    z3 = z2
 
-    # 2) 화성 위치 (태양 중심, 원궤도 단순화)
-    mars_theta += mars_angular_speed * dt
-    mars_pos = np.array([
-        mars_sun_distance * np.cos(mars_theta),
-        mars_sun_distance * np.sin(mars_theta),
-        0
-    ])
-    mars_positions.append(mars_pos.copy())
+    return Vector(x3, y3, z3)
 
-    # 3) 태양-거울 거리 (화성 위치 + 거울 위치)
-    mirror_global = mars_pos + r  # 태양 기준 거울 위치
-    sun_to_mirror = np.linalg.norm(mirror_global)
-    # 태양 상수 (거울 위치에서)
-    S_mirror = solar_constant_1AU * (1.496e8 / sun_to_mirror)**2
+# --------- Mirror Simulation ---------
+class MirrorSimulation:
+    def __init__(self):
+        # Constants & Params
+        self.dt = 0.1
+        self.t = 0
 
-    # 4) 거울-화성 거리
-    mirror_to_mars = np.linalg.norm(r)
-    # 5) 입사각(거울 노멀과 화성 방향의 각도)
-    sun_vec = -mirror_global  # 태양->거울
-    mars_vec = -r            # 거울->화성(화성 중심)
-    sun_vec_unit = sun_vec / np.linalg.norm(sun_vec)
-    mars_vec_unit = mars_vec / np.linalg.norm(mars_vec)
-    cos_theta = np.dot(sun_vec_unit, mars_vec_unit)
-    cos_theta = max(cos_theta, 0)  # 음수 방지
+        self.G = 1  # 중력상수 간소화
+        self.sun_mass = 1e6
+        self.mars_mass = 1e3
 
-    # 6) 반사 에너지(거울에서 화성까지의 거리 감쇠, 입사각 반영)
-    mirror_area = mirror_size ** 2  # m^2
-    reflected = mirror_area * mirror_reflectivity * S_mirror * cos_theta * dt
-    # 화성까지의 거리 감쇠(역제곱 법칙, km->m)
-    reflected_on_mars = reflected * (1e6 / (mirror_to_mars*1e3))**2
-    energy_to_mars.append(reflected_on_mars)
+        # 태양 중심 케플러 화성 궤도 (단위 임의)
+        self.mars_orbit = KeplerOrbit(
+            G=self.G, M=self.sun_mass,
+            a=50, e=0.1, i=math.radians(1),
+            Omega=0, omega=0, M0=0
+        )
 
-    mirror_angles.append(mirror_angle)
+        # 화성 중심 오일러 각을 이용한 거울 궤도 반경 (반지름 고정)
+        self.mirror_orbit_radius = 5
 
-# ====== 5. 결과 출력 및 시각화 ======
-print("최종 위치 (화성 중심, km):", positions[-1])
-print("최종 속도 (km/s):", velocities[-1])
-print("거울 각도 (deg):", mirror_angles[-1])
-print(f"시뮬레이션 동안 화성에 도달한 반사 태양 에너지(실제 궤도 기반): {np.sum(energy_to_mars):.2e} J")
+        # 오일러 각 속도(rad/s)
+        self.alpha_dot = 0.05  # z축 회전 속도
+        self.beta_dot = 0.02   # x축 회전 속도
+        self.gamma_dot = 0.03  # z축 회전 속도
 
-# 3차원 궤도 시각화 (태양 기준)
-positions_np = np.array(positions)
-mars_positions_np = np.array(mars_positions)
-mirror_global_np = mars_positions_np + positions_np
+        self.trace = []
+        self.energy_trace = []
+        self.cumulative_energy = 0
+        self.last_print_time = 0
 
-fig = plt.figure(figsize=(10, 7))
-ax = fig.add_subplot(111, projection='3d')
-ax.plot(mars_positions_np[:,0], mars_positions_np[:,1], mars_positions_np[:,2], label='Mars Orbit', color='red')
-ax.plot(mirror_global_np[:,0], mirror_global_np[:,1], mirror_global_np[:,2], label='Mirror Orbit', color='blue')
-ax.scatter(0, 0, 0, color='orange', label='Sun', s=100)
-ax.set_xlabel('X (km)')
-ax.set_ylabel('Y (km)')
-ax.set_zlabel('Z (km)')
-ax.set_title('3D Orbit of Space Mirror around Mars (Heliocentric)')
-ax.legend()
-plt.show()
+        # 플롯 셋업
+        self.fig = plt.figure(figsize=(12, 6))
+        gs = gridspec.GridSpec(1, 2, width_ratios=[2, 1])
+        self.ax_orbit = self.fig.add_subplot(gs[0], projection='3d')
+        self.ax_energy = self.fig.add_subplot(gs[1])
 
-# 시간에 따른 화성 도달 반사 에너지량 그래프
-plt.figure(figsize=(8,4))
-plt.plot(np.arange(num_steps)*dt/3600, np.cumsum(energy_to_mars))
-plt.xlabel('Time (hours)')
-plt.ylabel('Cumulative Reflected Energy to Mars (J)')
-plt.title('Reflected Solar Energy Delivered to Mars Over Time')
-plt.grid()
-plt.show()
+    def compute_reflected_energy(self, mirror_abs_pos, mars_pos):
+        sun_pos = Vector(0, 0, 0)
+        sun_dir = (sun_pos - mirror_abs_pos).normalize()
+        distance = (sun_pos - mirror_abs_pos).get_norm()
+        normal = (mars_pos - mirror_abs_pos).normalize()
+        incidence_angle = max(0, normal.dot(sun_dir))
+
+        mirror_area = 10  # m^2
+        solar_constant = 1361  # W/m^2
+        reference_distance = 1  # 1 unit distance for scaling
+        attenuation = (reference_distance / distance) ** 2
+        reflected_energy = solar_constant * mirror_area * incidence_angle * attenuation
+        return reflected_energy
+
+    def update(self):
+        self.t += self.dt
+
+        # 1) 화성 태양 중심 위치
+        mars_pos, _ = self.mars_orbit.get_state(self.t)
+
+        # 2) 거울 위치 계산 - 화성 중심 기준 원 궤도(반지름 고정)
+        # 초기 위치 거울을 x축에 두고 시작
+        base_pos = Vector(self.mirror_orbit_radius, 0, 0)
+
+        # 현재 오일러 각 계산
+        alpha = self.alpha_dot * self.t
+        beta = self.beta_dot * self.t
+        gamma = self.gamma_dot * self.t
+
+        # 오일러 회전 적용
+        mirror_rel_pos = euler_rotate(base_pos, (alpha, beta, gamma))
+
+        # 거울 절대 위치 = 화성 위치 + 상대 위치
+        mirror_abs_pos = mars_pos + mirror_rel_pos
+
+        # 위치 기록
+        self.trace.append(mirror_abs_pos.copy())
+        if len(self.trace) > 500:
+            self.trace.pop(0)
+
+        # 반사 에너지 계산
+        energy = self.compute_reflected_energy(mirror_abs_pos, mars_pos)
+        self.cumulative_energy += energy * self.dt
+        self.energy_trace.append(energy)
+        if len(self.energy_trace) > 500:
+            self.energy_trace.pop(0)
+
+        # 상태 출력 (1초 간격)
+        if int(self.t) > self.last_print_time:
+            print(f"Time: {int(self.t)} s, Cumulative Reflected Energy: {self.cumulative_energy:.2f} J")
+            self.last_print_time = int(self.t)
+
+        # 현재 위치 상태 저장
+        self.mars_pos = mars_pos
+        self.mirror_abs_pos = mirror_abs_pos
+
+    def draw(self):
+        self.ax_orbit.clear()
+        self.ax_energy.clear()
+
+        # 태양
+        self.ax_orbit.scatter(0, 0, 0, color='yellow', s=200, label='Sun')
+
+        # 화성
+        self.ax_orbit.scatter(self.mars_pos.x, self.mars_pos.y, self.mars_pos.z, color='red', s=100, label='Mars')
+
+        # 거울
+        self.ax_orbit.scatter(self.mirror_abs_pos.x, self.mirror_abs_pos.y, self.mirror_abs_pos.z, color='blue', s=50, label='Mirror')
+
+        # 궤적
+        xs = [p.x for p in self.trace]
+        ys = [p.y for p in self.trace]
+        zs = [p.z for p in self.trace]
+        self.ax_orbit.plot(xs, ys, zs, color='blue', linewidth=0.8)
+
+        # 축 한계
+        lim = 70
+        self.ax_orbit.set_xlim(-lim, lim)
+        self.ax_orbit.set_ylim(-lim, lim)
+        self.ax_orbit.set_zlim(-lim, lim)
+        self.ax_orbit.set_title('Mirror Orbiting Mars (Euler Rotation) & Mars around Sun')
+        self.ax_orbit.legend()
+
+        # 반사 에너지 그래프
+        self.ax_energy.plot(self.energy_trace, color='orange')
+        self.ax_energy.set_title('Reflected Solar Energy (W)')
+        self.ax_energy.set_xlabel('Time step')
+        self.ax_energy.set_ylabel('Energy')
+
+        plt.pause(0.001)
+
+    def run(self, steps=2000):
+        plt.ion()
+        for _ in range(steps):
+            self.update()
+            self.draw()
+        plt.ioff()
+        plt.show()
+
+# --------- 실행 ---------
+if __name__ == "__main__":
+    sim = MirrorSimulation()
+    sim.run()
