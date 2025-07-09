@@ -216,7 +216,7 @@ def objective(params):
     sim = MirrorSimulation(mirror_orbit_params, visualize=False)
     for j in range(1000):
         sim.update()
-    return sim.cumulative_energy
+    return -sim.cumulative_energy
 
 bounds = [
     (50, 150),
@@ -238,5 +238,6 @@ best_param_dict = {
     'M0': best_params[5],
 }
 
+print(best_param_dict)
 final_sim = MirrorSimulation(best_param_dict, visualize=True)
 final_sim.run(steps=2000)
