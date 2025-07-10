@@ -193,7 +193,7 @@ class MirrorSimulation:
         self.ax_orbit.legend(loc='upper right')
 
         self.ax_energy.plot(self.energy_trace, color='black')
-        self.ax_energy.set_title('태양광 도달량')
+        self.ax_energy.set_title('Total energy')
         self.ax_energy.set_xlabel('t')
         self.ax_energy.set_ylabel('E')
         plt.pause(0.001)
