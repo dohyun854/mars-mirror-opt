@@ -19,7 +19,7 @@ class Vector:
         return math.sqrt(self.x**2 + self.y**2 + self.z**2)
     def normalize(self):
         norm = self.get_norm()
-        return self / norm if norm != 0 else Vector(0, 0, 0)
+        return self/norm if norm!=0 else Vector(0, 0, 0)
     def dot(self, v):
         return self.x*v.x + self.y*v.y + self.z*v.z
     def copy(self):
@@ -128,6 +128,40 @@ class MirrorSimulation:
         pos, _ = self.mars_orbit.get_state(t)
         return pos
 
+
+    def compute_reflected_energy(self):
+        sun_pos = Vector(0, 0, 0)
+        mirror_pos = self.mirror_pos
+        mars_pos = self.mars_pos
+        sun_to_mirror = mirror_pos - sun_pos
+        sun_direction = sun_to_mirror.normalize()
+        distance = sun_to_mirror.get_norm()
+
+        # 그림자 판정: 태양 → 거울 광선이 화성 구체를 관통하는지 검사
+        ray_origin = sun_pos
+        ray_dir = sun_direction
+        sphere_center = mars_pos
+        sphere_radius = 5  # ★ 단위 맞춰서 조정 (500~700km 추정, 여기선 축소 스케일에 맞춰서 5 정도)
+
+        oc = ray_origin - sphere_center
+        b = 2 * ray_dir.dot(oc)
+        c = oc.dot(oc) - sphere_radius ** 2
+        discriminant = b ** 2 - 4 * c
+
+        if discriminant > 0:
+            return 0  # 화성이 태양빛을 가림 (거울이 그림자에 들어감)
+
+        normal = (mars_pos - mirror_pos).normalize()
+        incidence_angle = max(0, normal.dot(sun_direction))
+
+        mirror_area = 10
+        solar_constant_at_1AU = 1361
+        reference_distance = 1e6
+        attenuation = (reference_distance / distance) ** 2
+
+        return solar_constant_at_1AU * mirror_area * incidence_angle * attenuation
+
+    """
     def compute_reflected_energy(self):
         sun_pos = Vector(0, 0, 0)
         sun_direction = (sun_pos-self.mirror_pos).normalize()
@@ -140,6 +174,8 @@ class MirrorSimulation:
         reference_distance = 1e6
         attenuation = (reference_distance / distance) ** 2
         return solar_constant_at_1AU * mirror_area * incidence_angle * attenuation
+    """
+    
 
     def update(self):
         self.mars_pos = self.get_mars_position(self.t)
