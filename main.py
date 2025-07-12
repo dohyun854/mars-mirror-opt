@@ -137,11 +137,10 @@ class MirrorSimulation:
         sun_direction = sun_to_mirror.normalize()
         distance = sun_to_mirror.get_norm()
 
-        # 그림자 판정: 태양 → 거울 광선이 화성 구체를 관통하는지 검사
         ray_origin = sun_pos
         ray_dir = sun_direction
         sphere_center = mars_pos
-        sphere_radius = 5  # ★ 단위 맞춰서 조정 (500~700km 추정, 여기선 축소 스케일에 맞춰서 5 정도)
+        sphere_radius = 5
 
         oc = ray_origin - sphere_center
         b = 2 * ray_dir.dot(oc)
@@ -149,7 +148,7 @@ class MirrorSimulation:
         discriminant = b ** 2 - 4 * c
 
         if discriminant > 0:
-            return 0  # 화성이 태양빛을 가림 (거울이 그림자에 들어감)
+            return 0
 
         normal = (mars_pos - mirror_pos).normalize()
         incidence_angle = max(0, normal.dot(sun_direction))
