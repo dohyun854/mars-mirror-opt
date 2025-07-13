@@ -133,7 +133,7 @@ class MirrorSimulation:
         sun_pos = Vector(0, 0, 0)
         mirror_pos = self.mirror_pos
         mars_pos = self.mars_pos
-        sun_to_mirror = mirror_pos - sun_pos
+        sun_to_mirror = mirror_pos-sun_pos
         sun_direction = sun_to_mirror.normalize()
         distance = sun_to_mirror.get_norm()
 
@@ -142,23 +142,23 @@ class MirrorSimulation:
         sphere_center = mars_pos
         sphere_radius = 5
 
-        oc = ray_origin - sphere_center
-        b = 2 * ray_dir.dot(oc)
-        c = oc.dot(oc) - sphere_radius ** 2
-        discriminant = b ** 2 - 4 * c
+        oc = ray_origin-sphere_center
+        b = 2*ray_dir.dot(oc)
+        c = oc.dot(oc)-sphere_radius**2
+        discriminant = b**2-4*c
 
         if discriminant > 0:
             return 0
 
-        normal = (mars_pos - mirror_pos).normalize()
+        normal = (mars_pos-mirror_pos).normalize()
         incidence_angle = max(0, normal.dot(sun_direction))
 
         mirror_area = 10
         solar_constant_at_1AU = 1361
         reference_distance = 1e6
-        attenuation = (reference_distance / distance) ** 2
+        attenuation = (reference_distance/distance)**2
 
-        return solar_constant_at_1AU * mirror_area * incidence_angle * attenuation
+        return solar_constant_at_1AU*mirror_area*incidence_angle*attenuation
 
     """
     def compute_reflected_energy(self):
