@@ -262,7 +262,7 @@ bounds = [
     (0, 2*math.pi)
 ]
 
-result = differential_evolution(objective, bounds, maxiter=50, popsize=15)
+result = differential_evolution(objective, bounds, maxiter=75, popsize=15)
 best_params = result.x
 best_param_dict = {
     'a': best_params[0],
